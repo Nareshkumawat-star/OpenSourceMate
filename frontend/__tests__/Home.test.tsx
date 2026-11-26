@@ -130,6 +130,7 @@ describe("Analyze Flow - Home Component", () => {
         expect.any(Object)
       );
     });
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("displays loading state and disables analyze button during request", async () => {
@@ -138,7 +139,11 @@ describe("Analyze Flow - Home Component", () => {
       resolveProfile = resolve;
     });
 
-    (global.fetch as jest.Mock).mockReturnValue(profilePromise);
+    (global.fetch as jest.Mock).mockReturnValueOnce(profilePromise).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockSkills,
+    });
 
     render(<Home />);
 
@@ -147,17 +152,74 @@ describe("Analyze Flow - Home Component", () => {
 
     fireEvent.change(input, { target: { value: "octocat" } });
     fireEvent.click(analyzeBtn);
+    fireEvent.click(analyzeBtn);
 
     expect(screen.getByRole("button", { name: /Analyzing\.\.\./i })).toBeDisabled();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
 
     // Clean up promise
-    act(() => {
+    await act(async () => {
       resolveProfile!({
         ok: true,
         status: 200,
         json: async () => mockProfile,
       });
+      await profilePromise;
     });
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+  });
+
+  it("announces each analysis phase until matching issues load", async () => {
+    let resolveProfile!: (value: unknown) => void;
+    let resolveSkills!: (value: unknown) => void;
+    let resolveRecommendations!: (value: unknown) => void;
+    const profilePromise = new Promise((resolve) => {
+      resolveProfile = resolve;
+    });
+    const skillsPromise = new Promise((resolve) => {
+      resolveSkills = resolve;
+    });
+    const recommendationsPromise = new Promise((resolve) => {
+      resolveRecommendations = resolve;
+    });
+
+    (global.fetch as jest.Mock)
+      .mockReturnValueOnce(profilePromise)
+      .mockReturnValueOnce(skillsPromise)
+      .mockReturnValueOnce(recommendationsPromise);
+
+    render(<Home />);
+    fireEvent.change(screen.getByPlaceholderText(/Enter your GitHub username/i), {
+      target: { value: "octocat" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Profile/i }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Fetching GitHub profile...");
+
+    await act(async () => {
+      resolveProfile({ ok: true, status: 200, json: async () => mockProfile });
+      await profilePromise;
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Detecting skills from repositories...");
+
+    await act(async () => {
+      resolveSkills({ ok: true, status: 200, json: async () => mockSkills });
+      await skillsPromise;
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Finding matching issues...");
+    expect(screen.getByRole("button", { name: /Analyzing\.\.\./i })).toBeDisabled();
+
+    await act(async () => {
+      resolveRecommendations({ ok: true, status: 200, json: async () => mockRecommendations });
+      await recommendationsPromise;
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(/Add TypeScript type definitions for options parser/i)
+    ).toBeInTheDocument();
   });
 
   it("handles successful analysis flow displaying profile, skills, and matched recommendations", async () => {
@@ -202,6 +264,7 @@ describe("Analyze Flow - Home Component", () => {
     });
     expect(screen.getByText("octocat/hello-world")).toBeInTheDocument();
     expect(screen.getByText("88%")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("displays 404 error when GitHub user does not exist", async () => {
@@ -220,6 +283,7 @@ describe("Analyze Flow - Home Component", () => {
     expect(
       await screen.findByText(/(?:GitHub user not found|could not be found)/i)
     ).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("displays rate limit error message with reset time on 429 response", async () => {
@@ -240,6 +304,7 @@ describe("Analyze Flow - Home Component", () => {
     fireEvent.click(screen.getByRole("button", { name: /Analyze Profile/i }));
 
     expect(await screen.findByText(/rate limit reached.*try again at/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("displays server unavailable message on 502/503 response", async () => {
@@ -258,6 +323,7 @@ describe("Analyze Flow - Home Component", () => {
     expect(
       await screen.findByRole("heading", { name: /temporarily unavailable/i })
     ).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("displays network connectivity error and retry button on TypeError", async () => {
@@ -297,6 +363,7 @@ describe("Analyze Flow - Home Component", () => {
     fireEvent.click(retryBtn);
 
     expect(await screen.findByText("The Octocat")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("submits the form when Enter key is pressed in the username input", async () => {
@@ -329,6 +396,7 @@ describe("Analyze Flow - Home Component", () => {
         expect.any(Object)
       );
     });
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("toggles theme between dark and light mode", async () => {

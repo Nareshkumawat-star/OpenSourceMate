@@ -138,10 +138,14 @@ export default function Home() {
 
   const [analyzerState, dispatchAnalyzer] = useReducer(analyzerReducer, initialAnalyzerState);
   const requestIdRef = useRef(0);
+  const [analysisProgress, setAnalysisProgress] = useState<"profile" | "skills" | "issues" | null>(
+    null
+  );
   const analysisData = analyzerState.status === "idle" ? undefined : analyzerState.data;
   const profile: Profile | null = analysisData?.profile ?? null;
   const skills: SkillsData | null = analysisData?.skills ?? null;
   const loading = analyzerState.status === "loading";
+  const isAnalyzing = loading || analysisProgress !== null;
   const error =
     analyzerState.status === "error" || analyzerState.status === "rate-limited"
       ? analyzerState.message
@@ -479,7 +483,7 @@ export default function Home() {
 
     const cleanUsername = validation.cleanUsername;
 
-    if (loading) return;
+    if (isAnalyzing) return;
 
     // Handle offline state: restore cached result if matches, or inform user
     if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -521,10 +525,13 @@ export default function Home() {
     }
 
     const searchSignal = createSearchSignal();
+    setAnalysisProgress("profile");
 
     try {
       const profileData = await fetchUserProfile(cleanUsername, { signal: searchSignal });
+      setAnalysisProgress("skills");
       const skillsData = await fetchUserSkills(cleanUsername, { signal: searchSignal });
+      setAnalysisProgress("issues");
 
       dispatchAnalyzer({
         type: "success",
@@ -539,7 +546,7 @@ export default function Home() {
       setIsViewingCached(false);
       setCachedFetchedAt(null);
 
-      fetchMatchedIssues(
+      await fetchMatchedIssues(
         cleanUsername,
         searchSignal,
         undefined,
@@ -594,6 +601,8 @@ export default function Home() {
         message: sanitizeErrorMessage(resolveAnalyzerErrorMessage(err)),
         canRetry: true,
       });
+    } finally {
+      setAnalysisProgress(null);
     }
   };
 
@@ -960,7 +969,7 @@ export default function Home() {
                         }
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && !loading) {
+                        if (e.key === "Enter" && !isAnalyzing) {
                           analyzeProfile();
                         }
                       }}
@@ -991,11 +1000,11 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => analyzeProfile()}
-                    disabled={loading}
-                    aria-busy={loading}
+                    disabled={isAnalyzing}
+                    aria-busy={isAnalyzing}
                     className="rounded-2xl bg-white px-6 py-3.5 text-sm font-semibold text-black transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:px-7 sm:py-4 sm:text-base"
                   >
-                    {loading ? "Analyzing..." : "Analyze Profile"}
+                    {isAnalyzing ? "Analyzing..." : "Analyze Profile"}
                   </button>
                 </div>
 
@@ -1007,7 +1016,7 @@ export default function Home() {
                     <button
                       key={example}
                       type="button"
-                      disabled={loading}
+                      disabled={isAnalyzing}
                       onClick={() => {
                         setUsername(example);
                         analyzeProfile(example);
@@ -1115,6 +1124,29 @@ export default function Home() {
               </p>
             </div>
           </section>
+
+          {analysisProgress && (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className={`mx-auto mb-6 flex max-w-5xl items-center gap-3 px-4 text-sm sm:px-6 ${
+                theme === "dark" ? "text-gray-300" : "text-gray-700"
+              }`}
+            >
+              <span
+                className="h-4 w-4 animate-spin rounded-full border-2 border-purple-400 border-t-transparent"
+                aria-hidden="true"
+              />
+              <span>
+                {analysisProgress === "profile"
+                  ? "Fetching GitHub profile..."
+                  : analysisProgress === "skills"
+                    ? "Detecting skills from repositories..."
+                    : "Finding matching issues..."}
+              </span>
+            </div>
+          )}
 
           {/* Loading Skeleton */}
           {loading && (
